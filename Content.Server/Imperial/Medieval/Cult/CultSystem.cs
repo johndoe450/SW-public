@@ -30,11 +30,12 @@ using Content.Server.SSDFree;
 using Content.Server.SSDFree.Components;
 using Content.Shared.Cuffs.Components;
 using Robust.Shared.Containers;
-using Content.Shared.Containers;
+using Robust.Server.GameObjects;
+using Content.Shared.Imperial.Medieval.Cult;
 
 namespace Content.Server.Cult
 {
-    public sealed partial class MedievalMeleeResourceSystem : EntitySystem
+    public sealed partial class CultSystem : EntitySystem
     {
         [Dependency] private readonly SharedAudioSystem _audioSystem = default!;
         [Dependency] private readonly IPlayerManager _playerManager = default!;
@@ -52,8 +53,10 @@ namespace Content.Server.Cult
         [Dependency] private readonly InventorySystem _inventorySystem = default!;
         [Dependency] private readonly SSDFreeSystem _ssdFreeSystem = default!;
         [Dependency] private readonly SharedContainerSystem _container = default!;
+        [Dependency] private readonly UserInterfaceSystem _uiSystem = default!;
 
         private const float DefaultReloadTimeSeconds = 10f;
+        private const string GloveSlotId = "gloves";
 
         private TimeSpan _nextCheckTime;
 
@@ -68,12 +71,14 @@ namespace Content.Server.Cult
             SubscribeLocalEvent<CultTeleportComponent, ExaminedEvent>(OnExamineTp);
             SubscribeLocalEvent<CultCursedComponent, ExaminedEvent>(OnExamineCursed);
             SubscribeLocalEvent<CultMemberComponent, MoveEvent>(OnChangeParent);
+            SubscribeLocalEvent<CultMemberComponent, InteractUsingEvent>(OnCultMemberInteract);
             SubscribeLocalEvent<CultRitualMeleeComponent, MeleeHitEvent>(OnMeleeHit);
             SubscribeLocalEvent<CultBloodMeleeComponent, MeleeHitEvent>(OnBloodMeleeHit);
             SubscribeLocalEvent<TakeNameComponent, PlayerAttachedEvent>(OnPlayerAttached);
 
             _nextCheckTime = _timing.CurTime + TimeSpan.FromSeconds(DefaultReloadTimeSeconds);
         }
+
         private bool CheckCultWearing(EntityUid uid)
         {
             if (!HasComp<CultMemberComponent>(uid) || !TryComp<InventoryComponent>(uid, out var inventoryComponent)) return false;
@@ -82,6 +87,7 @@ namespace Content.Server.Cult
             if (!check1 || !check2 || !HasComp<CultClothingComponent>(slot1) || !HasComp<CultClothingComponent>(slot2)) return false;
             return true;
         }
+
         private void OnPlayerAttached(EntityUid uid, TakeNameComponent comp, PlayerAttachedEvent args)
         {
             if (!_playerManager.TryGetSessionByEntity(uid, out var session) || comp.HasName) return;
@@ -126,12 +132,18 @@ namespace Content.Server.Cult
 
         private void OnMeleeHit(EntityUid uid, CultRitualMeleeComponent component, MeleeHitEvent args)
         {
-            if (!HasComp<CultMemberComponent>(args.User)) return;
+            if (!HasComp<CultMemberComponent>(args.User))
+                return;
+
             foreach (var entity in args.HitEntities)
             {
-                if (entity != args.User) continue;
+                if (entity != args.User)
+                    continue;
+
                 var from = GetTeleport(args.User);
-                if (!TryComp<CultTeleportComponent>(from, out var teleport) || !teleport.Enabled) continue;
+                if (!TryComp<CultTeleportComponent>(from, out var teleport) || !teleport.Enabled)
+                    continue;
+
                 if (from != args.User)
                 {
                     if (!CheckCultWearing(args.User))
@@ -139,6 +151,7 @@ namespace Content.Server.Cult
                         _chat.TrySendInGameICMessage(args.User, "Нужны святые одеяния...", InGameICChatType.Whisper, false);
                         return;
                     }
+
                     var xform = Transform(from);
                     var coords = xform.Coordinates;
                     foreach (var target in _lookup.GetEntitiesInRange(coords, 2.5f))
@@ -223,7 +236,7 @@ namespace Content.Server.Cult
                     if (picture.CollegiumUnlocked) continue;
                     foreach (var cultist in EntityManager.EntityQuery<CultMemberComponent>())
                     {
-                        if (TryComp<CultMapBlockerComponent>(cultist.parent, out var blocker))
+                        if (TryComp<CultMapBlockerComponent>(cultist.Parent, out var blocker))
                         {
                             switch (blocker.Sector)
                             {
@@ -306,8 +319,23 @@ namespace Content.Server.Cult
             if (!args.ParentChanged)
                 return;
 
-            comp.parent = newParent;
+            comp.Parent = newParent;
         }
+
+        private void OnCultMemberInteract(Entity<CultMemberComponent> uid, ref InteractUsingEvent args)
+        {
+            if (!HasComp<CultRitualMeleeComponent>(args.Used))
+                return;
+
+            if (_inventorySystem.TryGetSlotEntity(uid, GloveSlotId, out _))
+            {
+                _popupSystem.PopupClient(Loc.GetString("imperial-medieval-cult-rune-gloves"), args.User);
+                return;
+            }
+
+            _uiSystem.TryOpenUi(args.Used, CultRuneMenuUiKey.Key, uid);
+        }
+
         public void OnActivated(EntityUid uid, CultCheckPictureComponent comp, ActivateInWorldEvent args)
         {
             var xform = Transform(uid);

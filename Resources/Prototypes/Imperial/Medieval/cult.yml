@@ -293,7 +293,6 @@
   id: MedievalDaggerCult
   description: A deadly knife intended for melee confrontations.
   components:
-  - type: CultRitualMelee
   - type: Sprite
     sprite: Imperial/Medieval/Melee/dagger_cult.rsi
     size: Small
@@ -331,6 +330,11 @@
     speed: 5
   - type: StaminaDamageOnHit
     damage: 6
+  - type: CultRitualMelee
+  - type: UserInterface
+    interfaces:
+      enum.CultRuneMenuUiKey.Key:
+        type: CultRuneMenuBoundUserInterface
 
 - type: entity
   name: dagger
